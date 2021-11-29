@@ -1,6 +1,10 @@
 import numpy as np
+from math import ceil
 
 def maze_params(ba):
+	'''
+	From a bytearray object, determine a maze's dimensions, wall states, solution length, and solution.
+	'''
 	ls = ba[2]*256+ba[3]+2
 	h,w = ba[0]+1,ba[1]+1
 	return {'size': (h,w), 'solution_length': ls, 'total_bytes': 4+ceil((h*(w-1)+w*(h-1))*0.125+(ls-2)*0.25)}
@@ -15,8 +19,14 @@ class Maze:
 		self.height = self.size[0]
 		self.path = np.zeros((self.height, self.width, 2), dtype=bool)
 	def generate(self):
-		# Using Wilson's algorithm
-		self.path[:,:,:] = False # reset
+		'''
+		Reset the wall states (open/closed between each pair of adjacent nodes) to closed
+		and apply Wilson's algorithm to create a random maze with uniform distribution over all possible mazes
+		that have exactly one path (non-backtracking) between any two nodes.
+		
+		During generation, a trace-back map is created from every node toward (0,0) and thus the path between (0,0) and (height-1, width-1) is revealed.
+		'''
+		self.path[:,:,:] = False # reset state
 		self.trace_back = {(0,0): (None,0)}
 		closed_cells = [(0,0)]
 		for i in range(self.height):
@@ -65,6 +75,9 @@ class Maze:
 			self.solution.append(c)
 		self.solution.reverse()
 	def set_path(self, i, j, k, v):
+		'''
+		At node (i,j), set the state of the wall (open/closed) to v in direction k.
+		'''
 		if k == 0:
 			if j+1 < self.width:
 				self.path[i,j,0] = v
@@ -78,8 +91,12 @@ class Maze:
 			if i > 0:
 				self.path[i-1,j,1] = v
 	def set_path_to(self, i0, j0, i1, j1, v):
+		'''
+		At node (i0, j0), set the state of the wall (open/closed) to v in the direction toward node (i1, j1).
+		'''
 		self.set_path(i0, j0, 0 if j1 == j0+1 else 1 if i1 == i0+1 else 2 if j0 == j1+1 else 3, v)
 	def __repr__(self, show_solution=True):
+		# A unicode representation of the maze.
 		FILLED = '\u25a0'
 		EMPTY = ' '#'\u25a1'
 		s = [[FILLED if i == 0 or j == 0 or i == self.height*2 or j == self.width*2 or (i%2 == 0 and j%2 == 0) else EMPTY for j in range(self.width*2+1)] for i in range(self.height*2+1)]
@@ -106,6 +123,9 @@ class Maze:
 				lc = c
 		return f'Maze {self.height}x{self.width} | Solution length: {len(self.solution)}\n' + '\n'.join(' '.join(_s) for _s in s)
 	def to_bytearray(self):
+		'''
+		Convert this maze to a bytearray object.
+		'''
 		assert self.width <= 256 and self.height <= 256, f'The maze is too large to be encoded as a byte array.  Size = ({self.height}, {self.width}), but it must be no larger than (256, 256) in either dimension.'
 		assert self.width > 0 and self.height > 0, f'Error with maze dimensions.  Size = ({self.height}, {self.width})'
 		lba = (self.width * (self.height - 1) + self.height * (self.width - 1)) * 0.125 + (len(self.solution)-2) * 0.25
@@ -167,6 +187,9 @@ class Maze:
 		return ba
 	@classmethod
 	def from_bytearray(cls, ba):
+		'''
+		Load a maze from a bytearray object.
+		'''
 		p = maze_params(ba)
 		m = Maze(size = p['size'])
 		m.solution = [(0,0)]
@@ -208,9 +231,74 @@ class Maze:
 			K += 2
 		m.solution.append((m.height-1,m.width-1))
 		return m
+	@classmethod
+	def from_file(cls, file):
+		'''
+		Load a maze from a file.
+		'''
+		if '.' not in file:
+			file += '.maze'
+		f = open(file, 'rb')
+		ba = f.read()
+		f.close()
+		m = Maze.from_bytearray(ba)
+		return m
 	def save(self, file):
+		'''
+		Save this maze to a file (overwrite).
+		'''
 		if '.' not in file:
 			file += '.maze'
 		f = open(file, 'wb')
 		f.write(self.to_bytearray())
 		f.close()
+
+def load_mazes(file, start_index = 0, end_index = -1):
+	'''
+	Generate mazes from a single file which contains multiple mazes.
+	'''
+	if '.' not in file:
+		file += '.maze'
+	f = open(file, 'rb')
+	ba = f.read()
+	f.close()
+	K = 0
+	B = 0
+	while (end_index == -1 or B < end_index) and (K < len(ba) or B < start_index):
+		if K >= len(ba):
+			raise EOFError
+		p = maze_params(ba[K:K+4])
+		t = p['total_bytes']
+		if B >= start_index:
+			yield Maze.from_bytearray(ba[K:K+t])
+		K += t
+		B += 1
+
+def count_mazes(file):
+	'''
+	Count the number of mazes encoded in a file.
+	'''
+	if '.' not in file:
+		file += '.maze'
+	f = open(file, 'rb')
+	ba = f.read()
+	f.close()
+	K = 0
+	B = 0
+	while K < len(ba):
+		p = maze_params(ba[K:K+4])
+		t = p['total_bytes']
+		K += t
+		B += 1
+	return B
+
+def save_mazes(file, mazes):
+	'''
+	Save multiple mazes to a file.
+	'''
+	if '.' not in file:
+		file += '.maze'
+	f = open(file, 'wb')
+	for maze in mazes:
+		f.write(maze.to_bytearray())
+	f.close()
